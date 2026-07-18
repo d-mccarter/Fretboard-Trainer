@@ -9,13 +9,15 @@ const DEFAULT_OPTIONS = {
   maxHz: 1400,
   // Guitar notes are often less "pure" than sine tones — keep this modest.
   clarityThreshold: 0.78,
-  // Phone mics see quiet acoustic plucks well below 0.01 with AGC off.
-  rmsThreshold: 0.0015,
+  // Threshold is measured after mic gain — keep low for unamplified electrics.
+  rmsThreshold: 0.001,
   highpassHz: 65,
   noiseMargin: 1.55,
   spectralOverSubtract: 1.25,
   residualRatio: 0.12,
   yinThreshold: 0.15,
+  // Extra digital gain for quiet sources (unamplified electric, distant mic).
+  micGain: 6,
 };
 
 class PitchDetector {
@@ -24,6 +26,7 @@ class PitchDetector {
     this.audioContext = null;
     this.analyser = null;
     this.highpass = null;
+    this.inputGain = null;
     this.mediaStream = null;
     this.source = null;
     this.buffer = null;
@@ -33,8 +36,9 @@ class PitchDetector {
     this.rafId = null;
     this.onPitch = null;
     this.calibrating = false;
+    this.micGain = Math.max(1, Number(this.options.micGain) || DEFAULT_OPTIONS.micGain);
 
-    /** @type {{ rms: number, clarity: number, spectrum: Float32Array|null, sampleRate: number, at: number } | null} */
+    /** @type {{ rms: number, clarity: number, spectrum: Float32Array|null, sampleRate: number, at: number, gain: number } | null} */
     this.noiseProfile = null;
   }
 
@@ -83,23 +87,45 @@ class PitchDetector {
     highpass.frequency.value = this.options.highpassHz;
     highpass.Q.value = 0.7;
 
+    const inputGain = ctx.createGain();
+    inputGain.gain.value = this.micGain;
+
     const analyser = ctx.createAnalyser();
     // Larger FFT → longer time window → better low-E resolution
     analyser.fftSize = this.options.bufferSize * 2;
     analyser.smoothingTimeConstant = 0;
 
     const source = ctx.createMediaStreamSource(stream);
+    // mic → highpass → gain → analyser (gain boosts quiet unamplified electrics)
     source.connect(highpass);
-    highpass.connect(analyser);
+    highpass.connect(inputGain);
+    inputGain.connect(analyser);
 
     this.audioContext = ctx;
     this.analyser = analyser;
     this.highpass = highpass;
+    this.inputGain = inputGain;
     this.mediaStream = stream;
     this.source = source;
     this.buffer = new Float32Array(analyser.fftSize);
     this.yinBuffer = new Float32Array(Math.floor(analyser.fftSize / 2));
     this.freqDb = new Float32Array(analyser.frequencyBinCount);
+  }
+
+  /** Live mic preamp gain (1–24×). Applies immediately if the graph is open. */
+  setMicGain(gain) {
+    const next = Math.max(1, Math.min(24, Number(gain) || 1));
+    this.micGain = next;
+    this.options.micGain = next;
+    if (this.inputGain && this.audioContext) {
+      const now = this.audioContext.currentTime;
+      this.inputGain.gain.cancelScheduledValues(now);
+      this.inputGain.gain.setTargetAtTime(next, now, 0.02);
+    }
+  }
+
+  getMicGain() {
+    return this.micGain;
   }
 
   /**
@@ -165,6 +191,7 @@ class PitchDetector {
       clarity: maxClarity,
       spectrum,
       sampleRate: this.audioContext.sampleRate,
+      gain: this.micGain,
       at: Date.now(),
     };
 
@@ -204,6 +231,14 @@ class PitchDetector {
         /* ignore */
       }
       this.highpass = null;
+    }
+    if (this.inputGain) {
+      try {
+        this.inputGain.disconnect();
+      } catch {
+        /* ignore */
+      }
+      this.inputGain = null;
     }
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((t) => t.stop());
@@ -328,9 +363,12 @@ class PitchDetector {
   effectiveRmsThreshold() {
     const base = this.options.rmsThreshold;
     if (!this.noiseProfile) return base;
+    // Scale noise floor if mic gain changed since calibration.
+    const calGain = this.noiseProfile.gain || 1;
+    const gainScale = this.micGain / calGain;
+    const fromNoise = this.noiseProfile.rms * gainScale * this.options.noiseMargin;
     // Cap so a loud fan calibration cannot mute the guitar entirely.
-    const fromNoise = this.noiseProfile.rms * this.options.noiseMargin;
-    return Math.min(0.02, Math.max(base, fromNoise));
+    return Math.min(0.03, Math.max(base, fromNoise));
   }
 
   effectiveClarityThreshold() {

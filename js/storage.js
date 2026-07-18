@@ -8,6 +8,8 @@ const DEFAULT_CONFIG = {
   simulatorEnabled: false,
   /** @type {'mic' | 'digital'} */
   simulatorInput: 'digital',
+  /** Digital mic preamp for quiet sources (unamplified electric). */
+  micGain: 6,
 };
 
 function loadState() {
@@ -76,6 +78,10 @@ function normalizeConfig(config = {}) {
       ? config.simulatorInput
       : DEFAULT_CONFIG.simulatorInput;
 
+  let micGain = Number(config.micGain);
+  if (!Number.isFinite(micGain)) micGain = DEFAULT_CONFIG.micGain;
+  micGain = Math.max(1, Math.min(24, Math.round(micGain * 10) / 10));
+
   return {
     strings: strings.length ? strings : [...DEFAULT_CONFIG.strings],
     fretMin,
@@ -83,6 +89,7 @@ function normalizeConfig(config = {}) {
     naturalsOnly: Boolean(config.naturalsOnly),
     simulatorEnabled: Boolean(config.simulatorEnabled),
     simulatorInput,
+    micGain,
   };
 }
 
@@ -102,12 +109,14 @@ function normalizeNoiseProfile(profile) {
     spectrum = profile.spectrum.map((v) => Number(v) || 0);
   }
 
+  const gain = Number(profile.gain);
   return {
     version: NOISE_PROFILE_VERSION,
     rms,
     clarity: Number.isFinite(clarity) ? clarity : 0,
     spectrum,
     sampleRate: Number(profile.sampleRate) || 0,
+    gain: Number.isFinite(gain) && gain > 0 ? gain : 1,
     at: Number(profile.at) || Date.now(),
   };
 }
