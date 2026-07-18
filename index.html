@@ -9,7 +9,7 @@
   <title>Fretboard Trainer</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/styles.css?v=3">
+  <link rel="stylesheet" href="css/styles.css?v=4">
 </head>
 <body>
   <header class="app-header">
@@ -118,6 +118,9 @@
             A note name will appear with a location hint (string and fret range).
             Pluck that note on your guitar — the app listens through the microphone.
           </p>
+          <p class="field-hint" id="sim-warning-idle" hidden>
+            Guitar simulator is on. Turn it off in Configure to use a real guitar.
+          </p>
           <p class="field-hint secure-hint" id="secure-context-hint" hidden>
             Microphone access needs HTTPS. Open this page over a secure connection.
           </p>
@@ -156,6 +159,10 @@
             <span class="listen-status" id="listen-status">Listening</span>
             <span class="heard-pitch" id="heard-pitch">Play the note…</span>
           </div>
+          <div class="mic-meter" id="mic-meter" aria-hidden="true">
+            <div class="mic-meter-bar" id="mic-meter-bar"></div>
+          </div>
+          <p class="mic-meter-label" id="mic-meter-label">Mic level</p>
           <div class="session-stats">
             <div class="stat">
               <span class="stat-value" id="session-streak">0</span>
@@ -188,11 +195,11 @@
     </button>
   </nav>
 
-  <script src="js/fretboard.js?v=3"></script>
-  <script src="js/pitch.js?v=3"></script>
-  <script src="js/simulator.js?v=3"></script>
-  <script src="js/storage.js?v=3"></script>
-  <script src="js/app.js?v=3"></script>
+  <script src="js/fretboard.js?v=4"></script>
+  <script src="js/pitch.js?v=4"></script>
+  <script src="js/simulator.js?v=4"></script>
+  <script src="js/storage.js?v=4"></script>
+  <script src="js/app.js?v=4"></script>
   <script>
     if (!window.isSecureContext) {
       var hint = document.getElementById('secure-context-hint');

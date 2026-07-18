@@ -68,6 +68,10 @@
     simFreqLabel: document.getElementById('sim-freq-label'),
     simRangeLow: document.getElementById('sim-range-low'),
     simRangeHigh: document.getElementById('sim-range-high'),
+    micMeter: document.getElementById('mic-meter'),
+    micMeterBar: document.getElementById('mic-meter-bar'),
+    micMeterLabel: document.getElementById('mic-meter-label'),
+    simWarningIdle: document.getElementById('sim-warning-idle'),
   };
 
   function init() {
@@ -114,6 +118,12 @@
       btn.classList.toggle('active', btn.dataset.view === view);
     });
     els.pageTitle.textContent = view === 'configure' ? 'Configure' : 'Train';
+    if (view === 'train') renderIdleHints();
+  }
+
+  function renderIdleHints() {
+    if (!els.simWarningIdle) return;
+    els.simWarningIdle.hidden = !state.config.simulatorEnabled;
   }
 
   function bindConfigure() {
@@ -236,6 +246,7 @@
   function serializeNoiseProfile(profile) {
     if (!profile) return null;
     return {
+      version: 2,
       rms: profile.rms,
       clarity: profile.clarity,
       spectrum: profile.spectrum ? Array.from(profile.spectrum) : null,
@@ -328,6 +339,7 @@
     const pool = buildPositionPool(cfg);
     els.poolCount.textContent = String(pool.length);
     els.startTrainBtn.disabled = pool.length === 0;
+    renderIdleHints();
   }
 
   function renderStats() {
@@ -338,6 +350,23 @@
   function setTrainMode(active) {
     els.trainIdle.hidden = active;
     els.trainActive.hidden = !active;
+    const showMeter = active && usesMic();
+    if (els.micMeter) els.micMeter.hidden = !showMeter;
+    if (els.micMeterLabel) {
+      els.micMeterLabel.hidden = !showMeter;
+      els.micMeterLabel.textContent = showMeter ? 'Mic level' : '';
+    }
+    if (!showMeter && els.micMeterBar) {
+      els.micMeterBar.style.width = '0%';
+      els.micMeterBar.classList.remove('hot');
+    }
+  }
+
+  function updateMicMeter(level = 0) {
+    if (!els.micMeterBar || els.micMeter?.hidden) return;
+    const pct = Math.round(Math.min(1, Math.max(0, level)) * 100);
+    els.micMeterBar.style.width = `${pct}%`;
+    els.micMeterBar.classList.toggle('hot', pct > 35);
   }
 
   function sliderRangeForPool(pool) {
@@ -516,10 +545,21 @@
   function onPitch(result) {
     if (!session?.active || session.advancing || !session.target) return;
 
+    if (usesMic()) {
+      updateMicMeter(result.level || 0);
+    }
+
     if (!result.frequency) {
       session.matchFrames = 0;
       if (result.reason === 'noise') {
         els.listenStatus.textContent = 'Noise gated';
+        els.heardPitch.textContent = 'Background is masking the note — recalibrate or play louder';
+      } else if (result.reason === 'quiet') {
+        els.listenStatus.textContent = 'Listening';
+        els.heardPitch.textContent = 'Play closer / louder…';
+      } else if (result.reason === 'unclear') {
+        els.listenStatus.textContent = 'Listening';
+        els.heardPitch.textContent = 'Hearing sound — hold a single note…';
       } else if (els.listenStatus.textContent !== 'Listening') {
         els.listenStatus.textContent = 'Listening';
       }

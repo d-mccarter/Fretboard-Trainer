@@ -514,6 +514,38 @@ input[type="number"]:focus {
   font-variant-numeric: tabular-nums;
 }
 
+.mic-meter {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  margin-bottom: 6px;
+}
+
+.mic-meter-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  transition: width 0.06s linear;
+}
+
+.mic-meter-bar.hot {
+  background: linear-gradient(90deg, var(--accent), var(--success));
+}
+
+.mic-meter-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 12px;
+}
+
+#sim-warning-idle {
+  color: var(--accent);
+}
+
 .mic-error {
   margin-top: 8px;
   padding: 12px 14px;

@@ -86,8 +86,13 @@ function normalizeConfig(config = {}) {
   };
 }
 
+const NOISE_PROFILE_VERSION = 2;
+
 function normalizeNoiseProfile(profile) {
   if (!profile || typeof profile !== 'object') return null;
+  // Drop profiles from the earlier, overly aggressive gate.
+  if (Number(profile.version) !== NOISE_PROFILE_VERSION) return null;
+
   const rms = Number(profile.rms);
   const clarity = Number(profile.clarity);
   if (!Number.isFinite(rms) || rms <= 0) return null;
@@ -98,6 +103,7 @@ function normalizeNoiseProfile(profile) {
   }
 
   return {
+    version: NOISE_PROFILE_VERSION,
     rms,
     clarity: Number.isFinite(clarity) ? clarity : 0,
     spectrum,
@@ -109,6 +115,7 @@ function normalizeNoiseProfile(profile) {
 window.TrainerStorage = {
   STORAGE_KEY,
   DEFAULT_CONFIG,
+  NOISE_PROFILE_VERSION,
   loadState,
   saveState,
   normalizeConfig,
