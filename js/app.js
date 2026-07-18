@@ -10,9 +10,10 @@
   const { loadState, saveState, DEFAULT_CONFIG } = window.TrainerStorage;
   const PitchDetector = window.PitchDetector;
 
-  const CENTS_TOLERANCE = 35;
-  const HOLD_MS = 280;
-  const NEXT_DELAY_MS = 700;
+  const CENTS_TOLERANCE = 10;
+  const MATCH_FRAMES = 2;
+  const NEXT_DELAY_MS = 550;
+  const CALIBRATE_MS = 1800;
 
   const state = loadState();
   let currentView = 'configure';
@@ -49,6 +50,10 @@
     statsCorrect: document.getElementById('stat-notes-correct'),
     statsBest: document.getElementById('stat-best-streak'),
     promptCard: document.getElementById('prompt-card'),
+    calibrateBtn: document.getElementById('calibrate-noise-btn'),
+    clearNoiseBtn: document.getElementById('clear-noise-btn'),
+    noiseStatus: document.getElementById('noise-status'),
+    calibrateTrainBtn: document.getElementById('calibrate-noise-train-btn'),
   };
 
   function init() {
@@ -58,6 +63,7 @@
     bindTrain();
     renderConfigure();
     renderStats();
+    renderNoiseStatus();
     showView('configure');
   }
 
@@ -134,16 +140,116 @@
       showView('train');
       startSession();
     });
+
+    els.calibrateBtn.addEventListener('click', () => calibrateNoise());
+    els.clearNoiseBtn.addEventListener('click', () => clearNoiseProfile());
   }
 
   function bindTrain() {
     els.trainStartBtn.addEventListener('click', () => startSession());
     els.trainSkipBtn.addEventListener('click', () => skipTarget());
     els.trainStopBtn.addEventListener('click', () => stopSession());
+    els.calibrateTrainBtn.addEventListener('click', () => calibrateNoise());
   }
 
   function persist() {
     saveState(state);
+  }
+
+  function getDetector() {
+    if (!detector) {
+      detector = new PitchDetector();
+      applyStoredNoiseProfile(detector);
+    }
+    return detector;
+  }
+
+  function applyStoredNoiseProfile(det) {
+    if (!state.noiseProfile) {
+      det.clearNoiseProfile();
+      return;
+    }
+    const liveRate = det.audioContext?.sampleRate || state.noiseProfile.sampleRate;
+    const spectrumOk =
+      state.noiseProfile.spectrum &&
+      (!liveRate ||
+        !state.noiseProfile.sampleRate ||
+        Math.abs(liveRate - state.noiseProfile.sampleRate) < 1);
+
+    det.noiseProfile = {
+      rms: state.noiseProfile.rms,
+      clarity: state.noiseProfile.clarity,
+      spectrum: spectrumOk ? Float32Array.from(state.noiseProfile.spectrum) : null,
+      sampleRate: state.noiseProfile.sampleRate,
+      at: state.noiseProfile.at,
+    };
+  }
+
+  function serializeNoiseProfile(profile) {
+    if (!profile) return null;
+    return {
+      rms: profile.rms,
+      clarity: profile.clarity,
+      spectrum: profile.spectrum ? Array.from(profile.spectrum) : null,
+      sampleRate: profile.sampleRate,
+      at: profile.at,
+    };
+  }
+
+  function renderNoiseStatus() {
+    const profile = state.noiseProfile;
+    if (!profile) {
+      els.noiseStatus.textContent = 'No noise profile yet. Calibrate with your fan/room noise running and the guitar silent.';
+      els.clearNoiseBtn.hidden = true;
+      return;
+    }
+    const ageMin = Math.max(0, Math.round((Date.now() - profile.at) / 60000));
+    const ageText = ageMin < 1 ? 'just now' : `${ageMin}m ago`;
+    els.noiseStatus.textContent = `Noise profile active · floor ${profile.rms.toFixed(4)} · set ${ageText}`;
+    els.clearNoiseBtn.hidden = false;
+  }
+
+  async function calibrateNoise() {
+    els.micError.hidden = true;
+    els.micError.textContent = '';
+    els.noiseStatus.textContent = 'Calibrating… stay quiet (fan is fine).';
+    els.calibrateBtn.disabled = true;
+    els.calibrateTrainBtn.disabled = true;
+    els.clearNoiseBtn.disabled = true;
+
+    try {
+      const det = getDetector();
+      const result = await det.calibrateNoise(CALIBRATE_MS, (progress) => {
+        const pct = Math.round(progress * 100);
+        els.noiseStatus.textContent = `Calibrating… ${pct}% — stay quiet`;
+      });
+
+      state.noiseProfile = serializeNoiseProfile(det.noiseProfile);
+      persist();
+      renderNoiseStatus();
+      els.noiseStatus.textContent = `Noise profile saved · floor ${result.rms.toFixed(4)}. Ready to train.`;
+
+      // Release mic if not in an active training session
+      if (!session?.active) {
+        det.stop();
+        applyStoredNoiseProfile(det);
+      }
+    } catch (err) {
+      console.error(err);
+      showMicError(micErrorMessage(err));
+      els.noiseStatus.textContent = 'Calibration failed. Check microphone permission and try again.';
+    } finally {
+      els.calibrateBtn.disabled = false;
+      els.calibrateTrainBtn.disabled = false;
+      els.clearNoiseBtn.disabled = false;
+    }
+  }
+
+  function clearNoiseProfile() {
+    state.noiseProfile = null;
+    if (detector) detector.clearNoiseProfile();
+    persist();
+    renderNoiseStatus();
   }
 
   function renderConfigure() {
@@ -185,9 +291,10 @@
     els.micError.textContent = '';
 
     try {
-      if (!detector) detector = new PitchDetector();
+      const det = getDetector();
+      applyStoredNoiseProfile(det);
       if (!session?.listening) {
-        await detector.start((result) => onPitch(result));
+        await det.start((result) => onPitch(result));
       }
     } catch (err) {
       console.error(err);
@@ -207,7 +314,7 @@
       lastTargetKey: null,
       streak: 0,
       correct: 0,
-      matchStartedAt: null,
+      matchFrames: 0,
       advancing: false,
     };
 
@@ -220,7 +327,7 @@
   function stopSession() {
     if (detector) {
       detector.stop();
-      detector = null;
+      applyStoredNoiseProfile(detector);
     }
     session = null;
     setTrainMode(false);
@@ -235,7 +342,7 @@
 
   function skipTarget() {
     if (!session?.active || session.advancing) return;
-    session.matchStartedAt = null;
+    session.matchFrames = 0;
     session.streak = 0;
     els.sessionStreak.textContent = '0';
     nextTarget();
@@ -255,7 +362,7 @@
 
     session.target = pick;
     session.lastTargetKey = `${pick.string}-${pick.fret}`;
-    session.matchStartedAt = null;
+    session.matchFrames = 0;
     session.advancing = false;
 
     const loc = describeLocation(pick, state.config);
@@ -272,8 +379,10 @@
     if (!session?.active || session.advancing || !session.target) return;
 
     if (!result.frequency) {
-      session.matchStartedAt = null;
-      if (els.listenStatus.textContent !== 'Listening') {
+      session.matchFrames = 0;
+      if (result.reason === 'noise') {
+        els.listenStatus.textContent = 'Noise gated';
+      } else if (els.listenStatus.textContent !== 'Listening') {
         els.listenStatus.textContent = 'Listening';
       }
       return;
@@ -287,14 +396,14 @@
     els.heardPitch.textContent = `${heardName} · ${formatCents(cents)}`;
 
     if (Math.abs(cents) <= CENTS_TOLERANCE) {
-      els.listenStatus.textContent = 'Hold…';
-      if (!session.matchStartedAt) {
-        session.matchStartedAt = performance.now();
-      } else if (performance.now() - session.matchStartedAt >= HOLD_MS) {
+      session.matchFrames += 1;
+      els.listenStatus.textContent =
+        session.matchFrames >= MATCH_FRAMES ? 'Correct!' : 'Locked…';
+      if (session.matchFrames >= MATCH_FRAMES) {
         registerCorrect();
       }
     } else {
-      session.matchStartedAt = null;
+      session.matchFrames = 0;
       els.listenStatus.textContent = 'Listening';
     }
   }
@@ -339,12 +448,13 @@
     return 'Could not start the microphone. Check permissions and try again.';
   }
 
-  // Expose for debugging
   window.__trainer = {
     getState: () => state,
     getSession: () => session,
+    getDetector: () => detector,
     DEFAULT_CONFIG,
     STRING_LABELS,
+    CENTS_TOLERANCE,
   };
 
   init();

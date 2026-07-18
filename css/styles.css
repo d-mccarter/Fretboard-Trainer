@@ -133,6 +133,17 @@ body {
   margin-bottom: 12px;
 }
 
+.noise-status {
+  font-size: 0.85rem;
+  color: var(--text);
+  margin-bottom: 12px;
+  min-height: 1.3em;
+}
+
+#calibrate-noise-train-btn {
+  margin-bottom: 10px;
+}
+
 .field-hint:last-child {
   margin-bottom: 0;
 }
@@ -322,6 +333,16 @@ input[type="number"]:focus {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.train-actions .btn:only-child,
+.train-actions .btn[hidden] + .btn,
+.train-actions .btn:first-child:nth-last-child(1) {
+  grid-column: 1 / -1;
+}
+
+.train-actions .btn[hidden] {
+  display: none !important;
 }
 
 .prompt-card {
