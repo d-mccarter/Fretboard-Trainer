@@ -72,6 +72,11 @@
     micMeterBar: document.getElementById('mic-meter-bar'),
     micMeterLabel: document.getElementById('mic-meter-label'),
     simWarningIdle: document.getElementById('sim-warning-idle'),
+    micGainSlider: document.getElementById('mic-gain-slider'),
+    micGainValue: document.getElementById('mic-gain-value'),
+    liveGainRow: document.getElementById('live-gain-row'),
+    liveMicGainSlider: document.getElementById('live-mic-gain-slider'),
+    liveMicGainValue: document.getElementById('live-mic-gain-value'),
   };
 
   function init() {
@@ -181,6 +186,12 @@
 
     els.calibrateBtn.addEventListener('click', () => calibrateNoise());
     els.clearNoiseBtn.addEventListener('click', () => clearNoiseProfile());
+
+    const onMicGain = () => {
+      setMicGain(Number(els.micGainSlider.value));
+    };
+    els.micGainSlider.addEventListener('input', onMicGain);
+    els.micGainSlider.addEventListener('change', onMicGain);
   }
 
   function bindTrain() {
@@ -198,6 +209,29 @@
     };
     els.simPitchSlider.addEventListener('input', onSlider);
     els.simPitchSlider.addEventListener('change', onSlider);
+
+    const onLiveGain = () => {
+      setMicGain(Number(els.liveMicGainSlider.value));
+    };
+    els.liveMicGainSlider.addEventListener('input', onLiveGain);
+    els.liveMicGainSlider.addEventListener('change', onLiveGain);
+  }
+
+  function setMicGain(gain) {
+    const next = Math.max(1, Math.min(24, Number(gain) || 1));
+    state.config.micGain = next;
+    persist();
+    renderMicGain();
+    if (detector) detector.setMicGain(next);
+  }
+
+  function renderMicGain() {
+    const g = state.config.micGain;
+    const label = `${Number(g).toFixed(g % 1 === 0 ? 0 : 1)}×`;
+    if (els.micGainSlider) els.micGainSlider.value = String(g);
+    if (els.micGainValue) els.micGainValue.textContent = label;
+    if (els.liveMicGainSlider) els.liveMicGainSlider.value = String(g);
+    if (els.liveMicGainValue) els.liveMicGainValue.textContent = label;
   }
 
   function persist() {
@@ -211,9 +245,10 @@
 
   function getDetector() {
     if (!detector) {
-      detector = new PitchDetector();
+      detector = new PitchDetector({ micGain: state.config.micGain });
       applyStoredNoiseProfile(detector);
     }
+    detector.setMicGain(state.config.micGain);
     return detector;
   }
 
@@ -239,6 +274,7 @@
       clarity: state.noiseProfile.clarity,
       spectrum: spectrumOk ? Float32Array.from(state.noiseProfile.spectrum) : null,
       sampleRate: state.noiseProfile.sampleRate,
+      gain: state.noiseProfile.gain || state.config.micGain || 1,
       at: state.noiseProfile.at,
     };
   }
@@ -251,6 +287,7 @@
       clarity: profile.clarity,
       spectrum: profile.spectrum ? Array.from(profile.spectrum) : null,
       sampleRate: profile.sampleRate,
+      gain: profile.gain || state.config.micGain || 1,
       at: profile.at,
     };
   }
@@ -339,6 +376,7 @@
     const pool = buildPositionPool(cfg);
     els.poolCount.textContent = String(pool.length);
     els.startTrainBtn.disabled = pool.length === 0;
+    renderMicGain();
     renderIdleHints();
   }
 
@@ -356,10 +394,12 @@
       els.micMeterLabel.hidden = !showMeter;
       els.micMeterLabel.textContent = showMeter ? 'Mic level' : '';
     }
+    if (els.liveGainRow) els.liveGainRow.hidden = !showMeter;
     if (!showMeter && els.micMeterBar) {
       els.micMeterBar.style.width = '0%';
       els.micMeterBar.classList.remove('hot');
     }
+    if (showMeter) renderMicGain();
   }
 
   function updateMicMeter(level = 0) {
