@@ -128,22 +128,31 @@ class PitchDetector {
     return this.micGain;
   }
 
-  /**
-   * Sample ambient audio and build a noise profile used to gate background.
-   * Stay quiet (no guitar) while this runs — fans/AC are fine.
-   */
-  async calibrateNoise(durationMs = 1800, onProgress) {
+  async beginCalibration() {
     await this.ensureMic();
-
-    const wasRunning = this.running;
-    const previousOnPitch = this.onPitch;
+    this._calibrationPrevOnPitch = this.onPitch;
+    this._calibrationWasRunning = this.running;
     this.calibrating = true;
     this.onPitch = null;
-
-    if (!wasRunning) {
+    if (!this.running) {
       this.running = true;
       this.loop();
     }
+  }
+
+  endCalibration() {
+    this.calibrating = false;
+    this.onPitch = this._calibrationPrevOnPitch || null;
+    this._calibrationPrevOnPitch = null;
+    this._calibrationWasRunning = false;
+  }
+
+  /**
+   * Sample ambient audio at the current mic gain.
+   * Stay quiet (no guitar) while this runs — fans/AC are fine.
+   */
+  async sampleAmbient(durationMs = 1800, onProgress, shouldAbort) {
+    if (!this.calibrating) await this.beginCalibration();
 
     const rmsSamples = [];
     const claritySamples = [];
@@ -151,8 +160,12 @@ class PitchDetector {
     let frames = 0;
     const started = performance.now();
 
-    await new Promise((resolve) => {
+    await new Promise((resolve, reject) => {
       const collect = () => {
+        if (typeof shouldAbort === 'function' && shouldAbort()) {
+          reject(new Error('CALIBRATION_CANCELLED'));
+          return;
+        }
         const elapsed = performance.now() - started;
         if (typeof onProgress === 'function') {
           onProgress(Math.min(1, elapsed / durationMs));
@@ -182,27 +195,187 @@ class PitchDetector {
     const maxClarity = claritySamples.length
       ? claritySamples.reduce((m, v) => Math.max(m, v), 0)
       : 0;
-
     const spectrum =
       frames > 0 ? Float32Array.from(spectrumSum, (v) => v / frames) : null;
 
-    this.noiseProfile = {
+    return {
       rms: Math.max(p90, 0.0005),
       clarity: maxClarity,
       spectrum,
       sampleRate: this.audioContext.sampleRate,
       gain: this.micGain,
-      at: Date.now(),
-    };
-
-    this.calibrating = false;
-    this.onPitch = previousOnPitch;
-
-    return {
-      rms: this.noiseProfile.rms,
-      clarity: this.noiseProfile.clarity,
       durationMs,
     };
+  }
+
+  /**
+   * Cue the player on each beat and capture peak RMS / peak absolute level
+   * of notes played above the noise floor.
+   */
+  async samplePlayPeaks({
+    durationMs = 7000,
+    beatMs = 1000,
+    noiseRms = 0.001,
+    onBeat,
+    onProgress,
+    shouldAbort,
+  } = {}) {
+    if (!this.calibrating) await this.beginCalibration();
+
+    const gate = Math.max(noiseRms * 2.5, 0.0012);
+    const beatPeaks = [];
+    let beatIndex = -1;
+    let beatPeakRms = 0;
+    let beatPeakAbs = 0;
+    let beatHadSignal = false;
+    const started = performance.now();
+    let nextBeatAt = started;
+
+    await new Promise((resolve, reject) => {
+      const collect = () => {
+        if (typeof shouldAbort === 'function' && shouldAbort()) {
+          reject(new Error('CALIBRATION_CANCELLED'));
+          return;
+        }
+        const now = performance.now();
+        const elapsed = now - started;
+
+        while (now >= nextBeatAt && elapsed < durationMs) {
+          if (beatIndex >= 0 && beatHadSignal) {
+            beatPeaks.push({ rms: beatPeakRms, peak: beatPeakAbs, beat: beatIndex });
+          }
+          beatIndex += 1;
+          beatPeakRms = 0;
+          beatPeakAbs = 0;
+          beatHadSignal = false;
+          if (typeof onBeat === 'function') {
+            onBeat({
+              beat: beatIndex,
+              totalBeats: Math.ceil(durationMs / beatMs),
+              elapsed,
+            });
+          }
+          nextBeatAt += beatMs;
+        }
+
+        if (typeof onProgress === 'function') {
+          onProgress(Math.min(1, elapsed / durationMs));
+        }
+
+        const frame = this.measureFrame({ forCalibration: true });
+        // peak from analyser buffer
+        let peakAbs = 0;
+        if (this.buffer) {
+          for (let i = 0; i < this.buffer.length; i += 1) {
+            const a = Math.abs(this.buffer[i]);
+            if (a > peakAbs) peakAbs = a;
+          }
+        }
+
+        if (frame.rms >= gate) {
+          beatHadSignal = true;
+          if (frame.rms > beatPeakRms) beatPeakRms = frame.rms;
+          if (peakAbs > beatPeakAbs) beatPeakAbs = peakAbs;
+        }
+
+        if (elapsed >= durationMs) {
+          if (beatIndex >= 0 && beatHadSignal) {
+            beatPeaks.push({ rms: beatPeakRms, peak: beatPeakAbs, beat: beatIndex });
+          }
+          resolve();
+          return;
+        }
+        requestAnimationFrame(collect);
+      };
+      requestAnimationFrame(collect);
+    });
+
+    const rmsValues = beatPeaks.map((p) => p.rms).sort((a, b) => a - b);
+    const peakValues = beatPeaks.map((p) => p.peak).sort((a, b) => a - b);
+    const median = (arr) => {
+      if (!arr.length) return 0;
+      const mid = Math.floor(arr.length / 2);
+      return arr.length % 2 ? arr[mid] : (arr[mid - 1] + arr[mid]) / 2;
+    };
+
+    return {
+      beatsHeard: beatPeaks.length,
+      beatPeaks,
+      signalRms: median(rmsValues),
+      signalPeak: median(peakValues),
+      maxSignalRms: rmsValues.length ? rmsValues[rmsValues.length - 1] : 0,
+      maxSignalPeak: peakValues.length ? peakValues[peakValues.length - 1] : 0,
+      gate,
+      gain: this.micGain,
+      durationMs,
+    };
+  }
+
+  /**
+   * Choose a mic gain so typical plucks land near targetRms without clipping.
+   */
+  computeAutoGain({
+    signalRms,
+    signalPeak,
+    noiseRms,
+    targetRms = 0.11,
+    maxPeak = 0.75,
+    minGain = 1,
+    maxGain = 24,
+  }) {
+    const usableSignal = Math.max(signalRms, 0.0004);
+    let gain = targetRms / usableSignal;
+
+    if (signalPeak > 0) {
+      const peakLimited = maxPeak / signalPeak;
+      gain = Math.min(gain, peakLimited);
+    }
+
+    // Keep guitar clearly above noise after gain.
+    const minOverNoise = (noiseRms * 8) / usableSignal;
+    if (Number.isFinite(minOverNoise)) {
+      gain = Math.max(gain, minOverNoise);
+    }
+
+    gain = Math.max(minGain, Math.min(maxGain, gain));
+    // Round to slider steps (0.5×)
+    return Math.round(gain * 2) / 2;
+  }
+
+  applyNoiseProfile(ambient, { gain = this.micGain } = {}) {
+    const measureGain = ambient.gain || 1;
+    const scale = gain / measureGain;
+    const spectrum = ambient.spectrum
+      ? Float32Array.from(ambient.spectrum, (v) => v * scale * scale)
+      : null;
+
+    this.noiseProfile = {
+      rms: Math.max(ambient.rms * scale, 0.0005),
+      clarity: ambient.clarity || 0,
+      spectrum,
+      sampleRate: ambient.sampleRate || this.audioContext?.sampleRate || 0,
+      gain,
+      at: Date.now(),
+    };
+    return this.noiseProfile;
+  }
+
+  /**
+   * Back-compat: ambient-only calibration at the current gain.
+   */
+  async calibrateNoise(durationMs = 1800, onProgress) {
+    await this.beginCalibration();
+    try {
+      const ambient = await this.sampleAmbient(durationMs, onProgress);
+      this.applyNoiseProfile(ambient, { gain: this.micGain });
+      return {
+        rms: this.noiseProfile.rms,
+        clarity: this.noiseProfile.clarity,
+        durationMs,
+      };
+    } finally {
+      this.endCalibration();
+    }
   }
 
   clearNoiseProfile() {
