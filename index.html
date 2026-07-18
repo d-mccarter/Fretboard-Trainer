@@ -9,7 +9,7 @@
   <title>Fretboard Trainer</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/styles.css?v=5">
+  <link rel="stylesheet" href="css/styles.css?v=6">
 </head>
 <body>
   <header class="app-header">
@@ -78,13 +78,13 @@
       </div>
 
       <div class="card">
-        <h3>Microphone gain</h3>
+        <h3>Mic calibration</h3>
         <p class="field-hint">
-          Boost quiet sources like an unamplified electric. Raise until the mic meter
-          moves when you pluck; too high can clip or pick up more room noise.
+          Measures room noise, then blinks once per second while you pluck notes
+          so the app can set microphone gain automatically (great for unamplified electrics).
         </p>
         <div class="gain-readout">
-          <span>Gain</span>
+          <span>Current gain</span>
           <strong id="mic-gain-value">6×</strong>
         </div>
         <label class="sim-slider-field">
@@ -95,17 +95,9 @@
           <span>1×</span>
           <span>24×</span>
         </div>
-      </div>
-
-      <div class="card">
-        <h3>Background noise</h3>
-        <p class="field-hint">
-          With your fan or room noise running and the guitar silent, tap calibrate.
-          The app learns the ambient level and subtracts it while listening for notes.
-        </p>
-        <p class="noise-status" id="noise-status">No noise profile yet.</p>
+        <p class="noise-status" id="noise-status">Not calibrated yet.</p>
         <div class="train-actions">
-          <button type="button" class="btn btn-secondary" id="calibrate-noise-btn">Calibrate noise</button>
+          <button type="button" class="btn btn-primary" id="calibrate-noise-btn">Calibrate mic</button>
           <button type="button" class="btn btn-danger" id="clear-noise-btn" hidden>Clear</button>
         </div>
       </div>
@@ -144,7 +136,7 @@
           <p class="field-hint secure-hint" id="secure-context-hint" hidden>
             Microphone access needs HTTPS. Open this page over a secure connection.
           </p>
-          <button type="button" class="btn btn-secondary" id="calibrate-noise-train-btn">Calibrate noise</button>
+          <button type="button" class="btn btn-secondary" id="calibrate-noise-train-btn">Calibrate mic</button>
           <button type="button" class="btn btn-primary btn-large" id="train-start-btn">Start listening</button>
         </div>
       </div>
@@ -221,11 +213,24 @@
     </button>
   </nav>
 
-  <script src="js/fretboard.js?v=5"></script>
-  <script src="js/pitch.js?v=5"></script>
-  <script src="js/simulator.js?v=5"></script>
-  <script src="js/storage.js?v=5"></script>
-  <script src="js/app.js?v=5"></script>
+  <div class="modal-backdrop" id="calibrate-modal" hidden>
+    <div class="modal-card calibrate-modal" role="dialog" aria-modal="true" aria-labelledby="calibrate-title">
+      <h3 id="calibrate-title">Mic calibration</h3>
+      <p class="field-hint" id="calibrate-phase-text">Get ready…</p>
+      <div class="calibrate-light" id="calibrate-light" aria-hidden="true"></div>
+      <p class="calibrate-beat" id="calibrate-beat-label"></p>
+      <div class="calibrate-progress">
+        <div class="calibrate-progress-bar" id="calibrate-progress-bar"></div>
+      </div>
+      <button type="button" class="btn btn-secondary" id="calibrate-cancel-btn">Cancel</button>
+    </div>
+  </div>
+
+  <script src="js/fretboard.js?v=6"></script>
+  <script src="js/pitch.js?v=6"></script>
+  <script src="js/simulator.js?v=6"></script>
+  <script src="js/storage.js?v=6"></script>
+  <script src="js/app.js?v=6"></script>
   <script>
     if (!window.isSecureContext) {
       var hint = document.getElementById('secure-context-hint');

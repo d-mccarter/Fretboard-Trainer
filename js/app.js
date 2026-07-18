@@ -15,7 +15,10 @@
   const CENTS_TOLERANCE = 10;
   const MATCH_FRAMES = 2;
   const NEXT_DELAY_MS = 550;
-  const CALIBRATE_MS = 1800;
+  const CALIBRATE_NOISE_MS = 2000;
+  const CALIBRATE_PLAY_MS = 7000;
+  const CALIBRATE_BEAT_MS = 1000;
+  const CALIBRATE_REF_GAIN = 1;
 
   const state = loadState();
   let currentView = 'configure';
@@ -77,7 +80,15 @@
     liveGainRow: document.getElementById('live-gain-row'),
     liveMicGainSlider: document.getElementById('live-mic-gain-slider'),
     liveMicGainValue: document.getElementById('live-mic-gain-value'),
+    calibrateModal: document.getElementById('calibrate-modal'),
+    calibratePhaseText: document.getElementById('calibrate-phase-text'),
+    calibrateLight: document.getElementById('calibrate-light'),
+    calibrateBeatLabel: document.getElementById('calibrate-beat-label'),
+    calibrateProgressBar: document.getElementById('calibrate-progress-bar'),
+    calibrateCancelBtn: document.getElementById('calibrate-cancel-btn'),
   };
+
+  let calibrationCancel = null;
 
   function init() {
     loadBuildLabel();
@@ -184,8 +195,11 @@
       startSession();
     });
 
-    els.calibrateBtn.addEventListener('click', () => calibrateNoise());
+    els.calibrateBtn.addEventListener('click', () => startMicCalibration());
     els.clearNoiseBtn.addEventListener('click', () => clearNoiseProfile());
+    els.calibrateCancelBtn.addEventListener('click', () => {
+      if (typeof calibrationCancel === 'function') calibrationCancel();
+    });
 
     const onMicGain = () => {
       setMicGain(Number(els.micGainSlider.value));
@@ -198,7 +212,7 @@
     els.trainStartBtn.addEventListener('click', () => startSession());
     els.trainSkipBtn.addEventListener('click', () => skipTarget());
     els.trainStopBtn.addEventListener('click', () => stopSession());
-    els.calibrateTrainBtn.addEventListener('click', () => calibrateNoise());
+    els.calibrateTrainBtn.addEventListener('click', () => startMicCalibration());
 
     const onSlider = () => {
       if (!session?.active || !state.config.simulatorEnabled) return;
@@ -295,49 +309,175 @@
   function renderNoiseStatus() {
     const profile = state.noiseProfile;
     if (!profile) {
-      els.noiseStatus.textContent = 'No noise profile yet. Calibrate with your fan/room noise running and the guitar silent.';
+      els.noiseStatus.textContent = 'Not calibrated yet. Run Calibrate mic before training with a quiet guitar.';
       els.clearNoiseBtn.hidden = true;
       return;
     }
     const ageMin = Math.max(0, Math.round((Date.now() - profile.at) / 60000));
     const ageText = ageMin < 1 ? 'just now' : `${ageMin}m ago`;
-    els.noiseStatus.textContent = `Noise profile active · floor ${profile.rms.toFixed(4)} · set ${ageText}`;
+    const gainLabel = `${Number(state.config.micGain).toFixed(state.config.micGain % 1 === 0 ? 0 : 1)}×`;
+    els.noiseStatus.textContent = `Calibrated · gain ${gainLabel} · floor ${profile.rms.toFixed(4)} · ${ageText}`;
     els.clearNoiseBtn.hidden = false;
   }
 
-  async function calibrateNoise() {
+  function showCalibrateModal(visible) {
+    els.calibrateModal.hidden = !visible;
+    if (!visible) {
+      els.calibrateLight.classList.remove('pulse', 'quiet');
+      els.calibrateBeatLabel.textContent = '';
+      els.calibrateProgressBar.style.width = '0%';
+    }
+  }
+
+  function setCalibrateProgress(progress) {
+    els.calibrateProgressBar.style.width = `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%`;
+  }
+
+  function flashCalibrateLight() {
+    els.calibrateLight.classList.remove('pulse');
+    // Force reflow so repeated pulses animate
+    void els.calibrateLight.offsetWidth;
+    els.calibrateLight.classList.add('pulse');
+    window.setTimeout(() => {
+      els.calibrateLight.classList.remove('pulse');
+    }, 220);
+  }
+
+  async function startMicCalibration() {
+    if (session?.active) {
+      showMicError('Stop the training session before calibrating the mic.');
+      return;
+    }
+
     els.micError.hidden = true;
     els.micError.textContent = '';
-    els.noiseStatus.textContent = 'Calibrating… stay quiet (fan is fine).';
     els.calibrateBtn.disabled = true;
     els.calibrateTrainBtn.disabled = true;
     els.clearNoiseBtn.disabled = true;
 
+    let cancelled = false;
+    calibrationCancel = () => {
+      cancelled = true;
+    };
+
+    showCalibrateModal(true);
+    els.calibratePhaseText.textContent = 'Phase 1 · Stay quiet while we measure room noise.';
+    els.calibrateBeatLabel.textContent = 'Silence please…';
+    els.calibrateLight.classList.add('quiet');
+    setCalibrateProgress(0);
+
+    const det = getDetector();
+
     try {
-      const det = getDetector();
-      const result = await det.calibrateNoise(CALIBRATE_MS, (progress) => {
-        const pct = Math.round(progress * 100);
-        els.noiseStatus.textContent = `Calibrating… ${pct}% — stay quiet`;
+      await det.beginCalibration();
+      // Measure noise/signal at unity gain so auto-gain math is stable.
+      det.setMicGain(CALIBRATE_REF_GAIN);
+
+      const ambient = await det.sampleAmbient(
+        CALIBRATE_NOISE_MS,
+        (progress) => {
+          setCalibrateProgress(progress * 0.35);
+          els.calibrateBeatLabel.textContent = `Measuring noise… ${Math.round(progress * 100)}%`;
+        },
+        () => cancelled
+      );
+
+      els.calibrateLight.classList.remove('quiet');
+      els.calibratePhaseText.textContent =
+        'Phase 2 · When the light blinks, pluck any note. Keep plucking once per blink.';
+      els.calibrateBeatLabel.textContent = 'Get ready…';
+
+      // Brief pause so the user can pick up the guitar
+      await waitMs(900, () => cancelled);
+
+      const play = await det.samplePlayPeaks({
+        durationMs: CALIBRATE_PLAY_MS,
+        beatMs: CALIBRATE_BEAT_MS,
+        noiseRms: ambient.rms,
+        shouldAbort: () => cancelled,
+        onBeat: ({ beat, totalBeats }) => {
+          flashCalibrateLight();
+          els.calibrateBeatLabel.textContent = `Pluck now · beat ${beat + 1} of ${totalBeats}`;
+        },
+        onProgress: (progress) => {
+          setCalibrateProgress(0.35 + progress * 0.55);
+        },
       });
 
-      state.noiseProfile = serializeNoiseProfile(det.noiseProfile);
-      persist();
-      renderNoiseStatus();
-      els.noiseStatus.textContent = `Noise profile saved · floor ${result.rms.toFixed(4)}. Ready to train.`;
+      if (!play.beatsHeard || play.signalRms <= 0) {
+        throw new Error('CALIBRATION_NO_SIGNAL');
+      }
 
+      els.calibratePhaseText.textContent = 'Setting gain…';
+      els.calibrateBeatLabel.textContent = `Heard ${play.beatsHeard} pluck${play.beatsHeard === 1 ? '' : 's'}`;
+      setCalibrateProgress(0.95);
+
+      const autoGain = det.computeAutoGain({
+        signalRms: play.signalRms,
+        signalPeak: play.signalPeak || play.maxSignalPeak,
+        noiseRms: ambient.rms,
+      });
+
+      det.setMicGain(autoGain);
+      state.config.micGain = autoGain;
+      const profile = det.applyNoiseProfile(ambient, { gain: autoGain });
+      state.noiseProfile = serializeNoiseProfile(profile);
+      persist();
+      renderMicGain();
+      renderNoiseStatus();
+
+      setCalibrateProgress(1);
+      els.calibratePhaseText.textContent = 'Calibration complete';
+      els.calibrateBeatLabel.textContent = `Gain set to ${autoGain}×`;
+      await waitMs(900, () => false);
+
+      els.noiseStatus.textContent = `Calibrated · gain ${autoGain}× · heard ${play.beatsHeard} plucks. Ready to train.`;
+    } catch (err) {
+      console.error(err);
+      if (err?.message === 'CALIBRATION_CANCELLED') {
+        els.noiseStatus.textContent = 'Calibration cancelled.';
+      } else if (err?.message === 'CALIBRATION_NO_SIGNAL') {
+        showMicError('No guitar plucks heard. Hold the phone closer and try again — pluck when the light blinks.');
+        els.noiseStatus.textContent = 'Calibration failed — no notes detected.';
+      } else {
+        showMicError(micErrorMessage(err));
+        els.noiseStatus.textContent = 'Calibration failed. Check microphone permission and try again.';
+      }
+    } finally {
+      try {
+        det.endCalibration();
+      } catch {
+        /* ignore */
+      }
       if (!session?.active) {
         det.stop();
         applyStoredNoiseProfile(det);
+        det.setMicGain(state.config.micGain);
       }
-    } catch (err) {
-      console.error(err);
-      showMicError(micErrorMessage(err));
-      els.noiseStatus.textContent = 'Calibration failed. Check microphone permission and try again.';
-    } finally {
+      showCalibrateModal(false);
+      calibrationCancel = null;
       els.calibrateBtn.disabled = false;
       els.calibrateTrainBtn.disabled = false;
       els.clearNoiseBtn.disabled = false;
     }
+  }
+
+  function waitMs(ms, isCancelled) {
+    return new Promise((resolve, reject) => {
+      const started = performance.now();
+      const tick = () => {
+        if (isCancelled()) {
+          reject(new Error('CALIBRATION_CANCELLED'));
+          return;
+        }
+        if (performance.now() - started >= ms) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
   }
 
   function clearNoiseProfile() {
