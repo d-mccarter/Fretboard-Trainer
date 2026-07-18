@@ -14,7 +14,7 @@
 
   const CENTS_TOLERANCE = 25;
   const MAX_MIC_GAIN = 100;
-  const MATCH_MS = 50;
+  const MATCH_MS = 10;
   const NEXT_DELAY_MS = 550;
   const CALIBRATE_NOISE_MS = 2000;
   const CALIBRATE_PLAY_MS = 7000;
