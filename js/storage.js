@@ -80,7 +80,7 @@ function normalizeConfig(config = {}) {
 
   let micGain = Number(config.micGain);
   if (!Number.isFinite(micGain)) micGain = DEFAULT_CONFIG.micGain;
-  micGain = Math.max(1, Math.min(64, Math.round(micGain * 10) / 10));
+  micGain = Math.max(1, Math.min(100, Math.round(micGain * 10) / 10));
 
   return {
     strings: strings.length ? strings : [...DEFAULT_CONFIG.strings],
