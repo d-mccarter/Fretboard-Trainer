@@ -9,7 +9,7 @@
   <title>Fretboard Trainer</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/styles.css?v=1">
+  <link rel="stylesheet" href="css/styles.css?v=2">
 </head>
 <body>
   <header class="app-header">
@@ -56,6 +56,19 @@
         <p class="field-hint">When on, sharps and flats are excluded (C D E F G A B only).</p>
       </div>
 
+      <div class="card">
+        <h3>Background noise</h3>
+        <p class="field-hint">
+          With your fan or room noise running and the guitar silent, tap calibrate.
+          The app learns the ambient level and subtracts it while listening for notes.
+        </p>
+        <p class="noise-status" id="noise-status">No noise profile yet.</p>
+        <div class="train-actions">
+          <button type="button" class="btn btn-secondary" id="calibrate-noise-btn">Calibrate noise</button>
+          <button type="button" class="btn btn-danger" id="clear-noise-btn" hidden>Clear</button>
+        </div>
+      </div>
+
       <div class="card summary-card">
         <div class="summary-row">
           <span class="summary-label">Notes in pool</span>
@@ -87,6 +100,7 @@
           <p class="field-hint secure-hint" id="secure-context-hint" hidden>
             Microphone access needs HTTPS. Open this page over a secure connection.
           </p>
+          <button type="button" class="btn btn-secondary" id="calibrate-noise-train-btn">Calibrate noise</button>
           <button type="button" class="btn btn-primary btn-large" id="train-start-btn">Start listening</button>
         </div>
       </div>
@@ -136,10 +150,10 @@
     </button>
   </nav>
 
-  <script src="js/fretboard.js?v=1"></script>
-  <script src="js/pitch.js?v=1"></script>
-  <script src="js/storage.js?v=1"></script>
-  <script src="js/app.js?v=1"></script>
+  <script src="js/fretboard.js?v=2"></script>
+  <script src="js/pitch.js?v=2"></script>
+  <script src="js/storage.js?v=2"></script>
+  <script src="js/app.js?v=2"></script>
   <script>
     if (!window.isSecureContext) {
       var hint = document.getElementById('secure-context-hint');
