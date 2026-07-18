@@ -5,6 +5,9 @@ const DEFAULT_CONFIG = {
   fretMin: 0,
   fretMax: 12,
   naturalsOnly: true,
+  simulatorEnabled: false,
+  /** @type {'mic' | 'digital'} */
+  simulatorInput: 'digital',
 };
 
 function loadState() {
@@ -68,11 +71,18 @@ function normalizeConfig(config = {}) {
     fretMax = tmp;
   }
 
+  const simulatorInput =
+    config.simulatorInput === 'mic' || config.simulatorInput === 'digital'
+      ? config.simulatorInput
+      : DEFAULT_CONFIG.simulatorInput;
+
   return {
     strings: strings.length ? strings : [...DEFAULT_CONFIG.strings],
     fretMin,
     fretMax,
     naturalsOnly: Boolean(config.naturalsOnly),
+    simulatorEnabled: Boolean(config.simulatorEnabled),
+    simulatorInput,
   };
 }
 

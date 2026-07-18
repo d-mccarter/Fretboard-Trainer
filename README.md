@@ -9,6 +9,7 @@ Works on iPhone: open in Safari, tap **Share → Add to Home Screen** for a full
 - **Configure** — Limit training to selected strings, a fret range, and optionally natural notes only (no sharps/flats)
 - **Train** — A note name is shown with a location hint (which string, and the configured fret range)
 - **Microphone pitch detection** — Autocorrelation-based detector listens for the correct pitch
+- **Guitar simulator** — Optional pitch slider that plays a phone tone for testing without a guitar; choose **Digital** (reads the tone directly) or **Microphone** (listens via the speaker)
 - **Local storage** — Settings and streak stats stay on your device
 
 ## Quick start

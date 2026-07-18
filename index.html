@@ -9,7 +9,7 @@
   <title>Fretboard Trainer</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/styles.css?v=2">
+  <link rel="stylesheet" href="css/styles.css?v=3">
 </head>
 <body>
   <header class="app-header">
@@ -54,6 +54,27 @@
           <button type="button" id="naturals-only" class="sync-switch on" aria-pressed="true">On</button>
         </div>
         <p class="field-hint">When on, sharps and flats are excluded (C D E F G A B only).</p>
+      </div>
+
+      <div class="card">
+        <h3>Guitar simulator</h3>
+        <div class="sync-auto-row">
+          <span>Enable simulator</span>
+          <button type="button" id="simulator-enabled" class="sync-switch" aria-pressed="false">Off</button>
+        </div>
+        <p class="field-hint">
+          Practice without a guitar using a pitch slider that plays a tone from your phone.
+        </p>
+        <div id="simulator-options" hidden>
+          <p class="field-hint simulator-input-label">Input source while simulating</p>
+          <div class="mode-toggle simulator-input-toggle" role="tablist" aria-label="Simulator input">
+            <button type="button" class="mode-btn active" data-sim-input="digital">Digital</button>
+            <button type="button" class="mode-btn" data-sim-input="mic">Microphone</button>
+          </div>
+          <p class="field-hint" id="simulator-input-hint">
+            Digital reads the generated tone directly — no mic needed.
+          </p>
+        </div>
       </div>
 
       <div class="card">
@@ -113,6 +134,23 @@
           <p class="location-range" id="location-range"></p>
         </div>
 
+        <div class="card simulator-card" id="simulator-card" hidden>
+          <h3>Simulator</h3>
+          <p class="field-hint" id="simulator-mode-label">Digital tone · drag to match the target</p>
+          <div class="sim-readout">
+            <span id="sim-note-label">A2</span>
+            <span id="sim-freq-label">110.0 Hz</span>
+          </div>
+          <label class="sim-slider-field">
+            <span class="visually-hidden">Pitch</span>
+            <input type="range" id="sim-pitch-slider" min="40" max="76" step="0.01" value="45">
+          </label>
+          <div class="sim-slider-ends">
+            <span id="sim-range-low">E2</span>
+            <span id="sim-range-high">E5</span>
+          </div>
+        </div>
+
         <div class="card listen-card">
           <div class="listen-row">
             <span class="listen-status" id="listen-status">Listening</span>
@@ -150,10 +188,11 @@
     </button>
   </nav>
 
-  <script src="js/fretboard.js?v=2"></script>
-  <script src="js/pitch.js?v=2"></script>
-  <script src="js/storage.js?v=2"></script>
-  <script src="js/app.js?v=2"></script>
+  <script src="js/fretboard.js?v=3"></script>
+  <script src="js/pitch.js?v=3"></script>
+  <script src="js/simulator.js?v=3"></script>
+  <script src="js/storage.js?v=3"></script>
+  <script src="js/app.js?v=3"></script>
   <script>
     if (!window.isSecureContext) {
       var hint = document.getElementById('secure-context-hint');

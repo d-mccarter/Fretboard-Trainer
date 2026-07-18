@@ -1,10 +1,11 @@
-const CACHE = 'fretboard-trainer-v2';
+const CACHE = 'fretboard-trainer-v3';
 const ASSETS = [
   './',
   './index.html',
   './css/styles.css',
   './js/fretboard.js',
   './js/pitch.js',
+  './js/simulator.js',
   './js/storage.js',
   './js/app.js',
   './manifest.json',
