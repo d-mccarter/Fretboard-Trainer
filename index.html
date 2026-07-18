@@ -9,7 +9,7 @@
   <title>Fretboard Trainer</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/styles.css?v=9">
+  <link rel="stylesheet" href="css/styles.css?v=10">
 </head>
 <body>
   <header class="app-header">
@@ -80,8 +80,9 @@
       <div class="card">
         <h3>Mic calibration</h3>
         <p class="field-hint">
-          Measures room noise, then blinks twice per second while you pluck notes
-          so the app can set microphone gain automatically (great for unamplified electrics).
+          Measures room noise, gives a 4-beat count-in, then blinks twice per second
+          while you pluck notes so the app can set microphone gain automatically.
+
         </p>
         <div class="gain-readout">
           <span>Current gain</span>
@@ -226,11 +227,11 @@
     </div>
   </div>
 
-  <script src="js/fretboard.js?v=9"></script>
-  <script src="js/pitch.js?v=9"></script>
-  <script src="js/simulator.js?v=9"></script>
-  <script src="js/storage.js?v=9"></script>
-  <script src="js/app.js?v=9"></script>
+  <script src="js/fretboard.js?v=10"></script>
+  <script src="js/pitch.js?v=10"></script>
+  <script src="js/simulator.js?v=10"></script>
+  <script src="js/storage.js?v=10"></script>
+  <script src="js/app.js?v=10"></script>
   <script>
     if (!window.isSecureContext) {
       var hint = document.getElementById('secure-context-hint');
