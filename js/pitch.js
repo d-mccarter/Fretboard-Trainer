@@ -1,18 +1,21 @@
 /**
- * Microphone pitch detection via autocorrelation (Safari / iOS friendly).
- * Supports ambient noise calibration (RMS gate + spectral residual check).
+ * Microphone pitch detection (Safari / iOS friendly).
+ * Uses YIN for guitar fundamentals + optional ambient noise gating.
  */
 
 const DEFAULT_OPTIONS = {
   bufferSize: 2048,
   minHz: 70,
-  maxHz: 1200,
-  clarityThreshold: 0.88,
-  rmsThreshold: 0.01,
-  highpassHz: 75,
-  noiseMargin: 2.4,
-  spectralOverSubtract: 1.6,
-  residualRatio: 0.45,
+  maxHz: 1400,
+  // Guitar notes are often less "pure" than sine tones — keep this modest.
+  clarityThreshold: 0.78,
+  // Phone mics see quiet acoustic plucks well below 0.01 with AGC off.
+  rmsThreshold: 0.0015,
+  highpassHz: 65,
+  noiseMargin: 1.55,
+  spectralOverSubtract: 1.25,
+  residualRatio: 0.12,
+  yinThreshold: 0.15,
 };
 
 class PitchDetector {
@@ -24,6 +27,7 @@ class PitchDetector {
     this.mediaStream = null;
     this.source = null;
     this.buffer = null;
+    this.yinBuffer = null;
     this.freqDb = null;
     this.running = false;
     this.rafId = null;
@@ -57,11 +61,13 @@ class PitchDetector {
       return;
     }
 
+    // Prefer raw mic, but allow the browser to use AGC if needed for quiet guitars.
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: false,
         noiseSuppression: false,
-        autoGainControl: false,
+        autoGainControl: true,
+        channelCount: 1,
       },
       video: false,
     });
@@ -75,9 +81,10 @@ class PitchDetector {
     const highpass = ctx.createBiquadFilter();
     highpass.type = 'highpass';
     highpass.frequency.value = this.options.highpassHz;
-    highpass.Q.value = 0.707;
+    highpass.Q.value = 0.7;
 
     const analyser = ctx.createAnalyser();
+    // Larger FFT → longer time window → better low-E resolution
     analyser.fftSize = this.options.bufferSize * 2;
     analyser.smoothingTimeConstant = 0;
 
@@ -91,11 +98,12 @@ class PitchDetector {
     this.mediaStream = stream;
     this.source = source;
     this.buffer = new Float32Array(analyser.fftSize);
+    this.yinBuffer = new Float32Array(Math.floor(analyser.fftSize / 2));
     this.freqDb = new Float32Array(analyser.frequencyBinCount);
   }
 
   /**
-   * Sample ambient audio and build a noise profile used to gate / cancel background.
+   * Sample ambient audio and build a noise profile used to gate background.
    * Stay quiet (no guitar) while this runs — fans/AC are fine.
    */
   async calibrateNoise(durationMs = 1800, onProgress) {
@@ -150,12 +158,10 @@ class PitchDetector {
       : 0;
 
     const spectrum =
-      frames > 0
-        ? Float32Array.from(spectrumSum, (v) => v / frames)
-        : null;
+      frames > 0 ? Float32Array.from(spectrumSum, (v) => v / frames) : null;
 
     this.noiseProfile = {
-      rms: Math.max(p90, 0.0008),
+      rms: Math.max(p90, 0.0005),
       clarity: maxClarity,
       spectrum,
       sampleRate: this.audioContext.sampleRate,
@@ -164,10 +170,6 @@ class PitchDetector {
 
     this.calibrating = false;
     this.onPitch = previousOnPitch;
-
-    if (!wasRunning) {
-      // Keep mic open so training can start immediately; caller may stop.
-    }
 
     return {
       rms: this.noiseProfile.rms,
@@ -213,8 +215,8 @@ class PitchDetector {
     }
     this.analyser = null;
     this.buffer = null;
+    this.yinBuffer = null;
     this.freqDb = null;
-    // Keep noiseProfile so recalibration isn't required every session restart
   }
 
   loop() {
@@ -235,16 +237,22 @@ class PitchDetector {
     const buffer = this.buffer;
     const ctx = this.audioContext;
     if (!analyser || !buffer || !ctx) {
-      return { frequency: null, clarity: 0, rms: 0, gated: true };
+      return { frequency: null, clarity: 0, rms: 0, level: 0, gated: true };
     }
 
     analyser.getFloatTimeDomainData(buffer);
 
     let sumSquares = 0;
+    let peak = 0;
     for (let i = 0; i < buffer.length; i += 1) {
-      sumSquares += buffer[i] * buffer[i];
+      const v = buffer[i];
+      sumSquares += v * v;
+      const a = Math.abs(v);
+      if (a > peak) peak = a;
     }
     const rms = Math.sqrt(sumSquares / buffer.length);
+    // UI level 0–1: blend peak + rms so quiet plucks still move the meter
+    const level = Math.min(1, Math.max(rms * 14, peak * 2.2));
 
     let spectrumPower = null;
     if (this.freqDb) {
@@ -257,93 +265,61 @@ class PitchDetector {
 
     const rmsThreshold = this.effectiveRmsThreshold();
     if (!forCalibration && rms < rmsThreshold) {
-      return { frequency: null, clarity: 0, rms, gated: true };
+      return {
+        frequency: null,
+        clarity: 0,
+        rms,
+        level,
+        gated: true,
+        reason: 'quiet',
+      };
     }
 
     if (!forCalibration && this.noiseProfile?.spectrum && spectrumPower) {
       const residualOk = this.hasGuitarResidual(spectrumPower, ctx.sampleRate);
       if (!residualOk) {
-        return { frequency: null, clarity: 0, rms, gated: true, reason: 'noise' };
+        return {
+          frequency: null,
+          clarity: 0,
+          rms,
+          level,
+          gated: true,
+          reason: 'noise',
+        };
       }
     }
 
-    const sampleRate = ctx.sampleRate;
-    const minLag = Math.floor(sampleRate / this.options.maxHz);
-    const maxLag = Math.min(
-      Math.floor(sampleRate / this.options.minHz),
-      buffer.length - 1
-    );
-
-    let r0 = 0;
-    for (let i = 0; i < buffer.length; i += 1) {
-      r0 += buffer[i] * buffer[i];
-    }
-    if (r0 <= 0) {
-      return { frequency: null, clarity: 0, rms, spectrumPower };
-    }
-
-    let bestLag = -1;
-    let bestCorr = 0;
-    let foundValley = false;
-    for (let lag = minLag; lag <= maxLag; lag += 1) {
-      let corr = 0;
-      for (let i = 0; i < buffer.length - lag; i += 1) {
-        corr += buffer[i] * buffer[i + lag];
-      }
-      corr /= r0;
-
-      if (!foundValley) {
-        if (corr < 0.2) foundValley = true;
-        continue;
-      }
-
-      if (corr > bestCorr) {
-        bestCorr = corr;
-        bestLag = lag;
-      }
-    }
-
-    const clarityThreshold = forCalibration
-      ? 0.5
-      : this.effectiveClarityThreshold();
-
-    if (bestLag < 0 || bestCorr < clarityThreshold) {
+    const pitch = detectPitchYin(buffer, ctx.sampleRate, this.yinBuffer, this.options);
+    if (!pitch) {
       return {
         frequency: null,
-        clarity: bestCorr,
+        clarity: 0,
         rms,
+        level,
         spectrumPower,
         gated: !forCalibration,
+        reason: 'unclear',
       };
     }
 
-    const lag = bestLag;
-    const y0 = autocorrAt(buffer, lag - 1, r0);
-    const y1 = bestCorr;
-    const y2 = autocorrAt(buffer, lag + 1, r0);
-    const denom = 2 * (2 * y1 - y0 - y2);
-    let refinedLag = lag;
-    if (denom !== 0) {
-      const delta = (y0 - y2) / denom;
-      if (Math.abs(delta) < 1) {
-        refinedLag = lag + delta;
-      }
-    }
-
-    const frequency = sampleRate / refinedLag;
-    if (frequency < this.options.minHz || frequency > this.options.maxHz) {
+    const clarityThreshold = forCalibration ? 0.45 : this.effectiveClarityThreshold();
+    if (pitch.clarity < clarityThreshold) {
       return {
         frequency: null,
-        clarity: bestCorr,
+        clarity: pitch.clarity,
         rms,
+        level,
         spectrumPower,
+        gated: !forCalibration,
+        reason: 'unclear',
       };
     }
 
     return {
-      frequency,
-      clarity: bestCorr,
+      frequency: pitch.frequency,
+      clarity: pitch.clarity,
       rms,
+      level,
       spectrumPower,
       gated: false,
     };
@@ -352,21 +328,22 @@ class PitchDetector {
   effectiveRmsThreshold() {
     const base = this.options.rmsThreshold;
     if (!this.noiseProfile) return base;
-    return Math.max(base, this.noiseProfile.rms * this.options.noiseMargin);
+    // Cap so a loud fan calibration cannot mute the guitar entirely.
+    const fromNoise = this.noiseProfile.rms * this.options.noiseMargin;
+    return Math.min(0.02, Math.max(base, fromNoise));
   }
 
   effectiveClarityThreshold() {
     const base = this.options.clarityThreshold;
     if (!this.noiseProfile) return base;
-    // Ambient may look weakly periodic (fan blades); require clearer peaks than that.
-    return Math.min(0.97, Math.max(base, this.noiseProfile.clarity + 0.06));
+    return Math.min(0.88, Math.max(base, this.noiseProfile.clarity + 0.03));
   }
 
   hasGuitarResidual(spectrumPower, sampleRate) {
     const noise = this.noiseProfile?.spectrum;
     if (!noise || noise.length !== spectrumPower.length) return true;
 
-    const binHz = sampleRate / (this.analyser.fftSize);
+    const binHz = sampleRate / this.analyser.fftSize;
     let residual = 0;
     let noiseEnergy = 0;
     const over = this.options.spectralOverSubtract;
@@ -374,9 +351,8 @@ class PitchDetector {
     for (let i = 0; i < spectrumPower.length; i += 1) {
       const hz = i * binHz;
       if (hz < this.options.minHz || hz > this.options.maxHz) continue;
-      const n = noise[i] * over;
       noiseEnergy += noise[i];
-      residual += Math.max(0, spectrumPower[i] - n);
+      residual += Math.max(0, spectrumPower[i] - noise[i] * over);
     }
 
     if (noiseEnergy <= 0) return true;
@@ -384,19 +360,85 @@ class PitchDetector {
   }
 }
 
-function dbToPower(db) {
-  // Analyser dB values are typically negative; clamp extremes.
-  const clamped = Math.max(-100, Math.min(0, db));
-  return 10 ** (clamped / 10);
+/**
+ * YIN pitch detection (de Cheveigné & Kawahara).
+ * More reliable on guitar than plain autocorrelation.
+ */
+function detectPitchYin(buffer, sampleRate, yinBuffer, options) {
+  const half = Math.min(yinBuffer.length, Math.floor(buffer.length / 2));
+  if (half < 32) return null;
+
+  const minTau = Math.max(2, Math.floor(sampleRate / options.maxHz));
+  const maxTau = Math.min(half - 1, Math.floor(sampleRate / options.minHz));
+  if (maxTau <= minTau) return null;
+
+  // Difference function
+  yinBuffer[0] = 0;
+  for (let tau = 1; tau < half; tau += 1) {
+    let sum = 0;
+    for (let i = 0; i < half; i += 1) {
+      const delta = buffer[i] - buffer[i + tau];
+      sum += delta * delta;
+    }
+    yinBuffer[tau] = sum;
+  }
+
+  // Cumulative mean normalized difference
+  let runningSum = 0;
+  yinBuffer[0] = 1;
+  for (let tau = 1; tau < half; tau += 1) {
+    runningSum += yinBuffer[tau];
+    yinBuffer[tau] = runningSum > 0 ? (yinBuffer[tau] * tau) / runningSum : 1;
+  }
+
+  const threshold = options.yinThreshold;
+  let tauEstimate = -1;
+  for (let tau = minTau; tau <= maxTau; tau += 1) {
+    if (yinBuffer[tau] < threshold) {
+      while (tau + 1 <= maxTau && yinBuffer[tau + 1] < yinBuffer[tau]) {
+        tau += 1;
+      }
+      tauEstimate = tau;
+      break;
+    }
+  }
+
+  // Fallback: absolute minimum in range if nothing crossed threshold
+  if (tauEstimate < 0) {
+    let best = minTau;
+    for (let tau = minTau + 1; tau <= maxTau; tau += 1) {
+      if (yinBuffer[tau] < yinBuffer[best]) best = tau;
+    }
+    if (yinBuffer[best] < 0.35) tauEstimate = best;
+  }
+
+  if (tauEstimate < 0) return null;
+
+  const betterTau = parabolicInterpolate(yinBuffer, tauEstimate);
+  const frequency = sampleRate / betterTau;
+  if (frequency < options.minHz || frequency > options.maxHz) return null;
+
+  const yinValue = yinBuffer[tauEstimate];
+  const clarity = Math.max(0, Math.min(1, 1 - yinValue));
+  return { frequency, clarity };
 }
 
-function autocorrAt(buffer, lag, r0) {
-  if (lag < 1 || lag >= buffer.length) return 0;
-  let corr = 0;
-  for (let i = 0; i < buffer.length - lag; i += 1) {
-    corr += buffer[i] * buffer[i + lag];
-  }
-  return corr / r0;
+function parabolicInterpolate(array, tau) {
+  const x0 = tau < 1 ? tau : tau - 1;
+  const x2 = tau + 1 < array.length ? tau + 1 : tau;
+  if (x0 === tau) return tau;
+  if (x2 === tau) return tau;
+  const s0 = array[x0];
+  const s1 = array[tau];
+  const s2 = array[x2];
+  const denom = 2 * s1 - s2 - s0;
+  if (denom === 0) return tau;
+  return tau + (s2 - s0) / (2 * denom);
+}
+
+function dbToPower(db) {
+  const clamped = Math.max(-100, Math.min(0, db));
+  return 10 ** (clamped / 10);
 }
 
 window.PitchDetector = PitchDetector;
