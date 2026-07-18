@@ -3,12 +3,14 @@
     buildPositionPool,
     describeLocation,
     frequencyToMidi,
+    midiToFrequency,
     midiToNoteName,
     formatCents,
     STRING_LABELS,
   } = window.Fretboard;
   const { loadState, saveState, DEFAULT_CONFIG } = window.TrainerStorage;
   const PitchDetector = window.PitchDetector;
+  const ToneSimulator = window.ToneSimulator;
 
   const CENTS_TOLERANCE = 10;
   const MATCH_FRAMES = 2;
@@ -18,6 +20,7 @@
   const state = loadState();
   let currentView = 'configure';
   let detector = null;
+  let simulator = null;
   let session = null;
 
   const els = {
@@ -32,6 +35,10 @@
     fretMin: document.getElementById('fret-min'),
     fretMax: document.getElementById('fret-max'),
     naturalsOnly: document.getElementById('naturals-only'),
+    simulatorEnabled: document.getElementById('simulator-enabled'),
+    simulatorOptions: document.getElementById('simulator-options'),
+    simulatorInputBtns: [...document.querySelectorAll('[data-sim-input]')],
+    simulatorInputHint: document.getElementById('simulator-input-hint'),
     poolCount: document.getElementById('pool-count'),
     startTrainBtn: document.getElementById('start-train-btn'),
     noteName: document.getElementById('note-name'),
@@ -54,6 +61,13 @@
     clearNoiseBtn: document.getElementById('clear-noise-btn'),
     noiseStatus: document.getElementById('noise-status'),
     calibrateTrainBtn: document.getElementById('calibrate-noise-train-btn'),
+    simulatorCard: document.getElementById('simulator-card'),
+    simulatorModeLabel: document.getElementById('simulator-mode-label'),
+    simPitchSlider: document.getElementById('sim-pitch-slider'),
+    simNoteLabel: document.getElementById('sim-note-label'),
+    simFreqLabel: document.getElementById('sim-freq-label'),
+    simRangeLow: document.getElementById('sim-range-low'),
+    simRangeHigh: document.getElementById('sim-range-high'),
   };
 
   function init() {
@@ -136,6 +150,20 @@
       renderConfigure();
     });
 
+    els.simulatorEnabled.addEventListener('click', () => {
+      state.config.simulatorEnabled = !state.config.simulatorEnabled;
+      persist();
+      renderConfigure();
+    });
+
+    els.simulatorInputBtns.forEach((btn) => {
+      btn.addEventListener('click', () => {
+        state.config.simulatorInput = btn.dataset.simInput;
+        persist();
+        renderConfigure();
+      });
+    });
+
     els.startTrainBtn.addEventListener('click', () => {
       showView('train');
       startSession();
@@ -150,10 +178,25 @@
     els.trainSkipBtn.addEventListener('click', () => skipTarget());
     els.trainStopBtn.addEventListener('click', () => stopSession());
     els.calibrateTrainBtn.addEventListener('click', () => calibrateNoise());
+
+    const onSlider = () => {
+      if (!session?.active || !state.config.simulatorEnabled) return;
+      const midi = Number(els.simPitchSlider.value);
+      const hz = midiToFrequency(midi);
+      updateSimReadout(midi, hz);
+      if (simulator) simulator.setFrequency(hz);
+    };
+    els.simPitchSlider.addEventListener('input', onSlider);
+    els.simPitchSlider.addEventListener('change', onSlider);
   }
 
   function persist() {
     saveState(state);
+  }
+
+  function usesMic() {
+    if (!state.config.simulatorEnabled) return true;
+    return state.config.simulatorInput === 'mic';
   }
 
   function getDetector() {
@@ -162,6 +205,11 @@
       applyStoredNoiseProfile(detector);
     }
     return detector;
+  }
+
+  function getSimulator() {
+    if (!simulator) simulator = new ToneSimulator();
+    return simulator;
   }
 
   function applyStoredNoiseProfile(det) {
@@ -229,7 +277,6 @@
       renderNoiseStatus();
       els.noiseStatus.textContent = `Noise profile saved · floor ${result.rms.toFixed(4)}. Ready to train.`;
 
-      // Release mic if not in an active training session
       if (!session?.active) {
         det.stop();
         applyStoredNoiseProfile(det);
@@ -265,6 +312,19 @@
     els.naturalsOnly.setAttribute('aria-pressed', cfg.naturalsOnly ? 'true' : 'false');
     els.naturalsOnly.textContent = cfg.naturalsOnly ? 'On' : 'Off';
 
+    els.simulatorEnabled.classList.toggle('on', cfg.simulatorEnabled);
+    els.simulatorEnabled.setAttribute('aria-pressed', cfg.simulatorEnabled ? 'true' : 'false');
+    els.simulatorEnabled.textContent = cfg.simulatorEnabled ? 'On' : 'Off';
+    els.simulatorOptions.hidden = !cfg.simulatorEnabled;
+
+    els.simulatorInputBtns.forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.simInput === cfg.simulatorInput);
+    });
+    els.simulatorInputHint.textContent =
+      cfg.simulatorInput === 'mic'
+        ? 'Microphone listens to the phone speaker playing the simulated tone.'
+        : 'Digital reads the generated tone directly — no mic needed.';
+
     const pool = buildPositionPool(cfg);
     els.poolCount.textContent = String(pool.length);
     els.startTrainBtn.disabled = pool.length === 0;
@@ -280,6 +340,48 @@
     els.trainActive.hidden = !active;
   }
 
+  function sliderRangeForPool(pool) {
+    const midis = pool.map((p) => p.midi);
+    const minMidi = Math.max(28, Math.min(...midis) - 2);
+    const maxMidi = Math.min(88, Math.max(...midis) + 2);
+    return { minMidi, maxMidi };
+  }
+
+  function updateSimReadout(midi, hz) {
+    els.simNoteLabel.textContent = midiToNoteName(Math.round(midi));
+    els.simFreqLabel.textContent = `${hz.toFixed(1)} Hz`;
+  }
+
+  function setupSimulatorUi(pool) {
+    const enabled = state.config.simulatorEnabled;
+    els.simulatorCard.hidden = !enabled;
+    if (!enabled) return;
+
+    const { minMidi, maxMidi } = sliderRangeForPool(pool);
+    els.simPitchSlider.min = String(minMidi);
+    els.simPitchSlider.max = String(maxMidi);
+    els.simRangeLow.textContent = midiToNoteName(Math.round(minMidi));
+    els.simRangeHigh.textContent = midiToNoteName(Math.round(maxMidi));
+
+    const mid = (minMidi + maxMidi) / 2;
+    els.simPitchSlider.value = String(mid);
+    updateSimReadout(mid, midiToFrequency(mid));
+
+    els.simulatorModeLabel.textContent =
+      state.config.simulatorInput === 'mic'
+        ? 'Mic loopback · drag to match the target (turn volume up)'
+        : 'Digital tone · drag to match the target';
+  }
+
+  async function startSimulatorTone(pool) {
+    const sim = getSimulator();
+    const { minMidi, maxMidi } = sliderRangeForPool(pool);
+    const midi = Number(els.simPitchSlider.value) || (minMidi + maxMidi) / 2;
+    const hz = midiToFrequency(midi);
+    await sim.start(hz);
+    updateSimReadout(midi, hz);
+  }
+
   async function startSession() {
     const pool = buildPositionPool(state.config);
     if (!pool.length) {
@@ -290,15 +392,40 @@
     els.micError.hidden = true;
     els.micError.textContent = '';
 
+    const needMic = usesMic();
+
     try {
-      const det = getDetector();
-      applyStoredNoiseProfile(det);
-      if (!session?.listening) {
-        await det.start((result) => onPitch(result));
+      if (state.config.simulatorEnabled) {
+        setupSimulatorUi(pool);
+        await startSimulatorTone(pool);
+      } else {
+        els.simulatorCard.hidden = true;
+        if (simulator) {
+          simulator.stop();
+          simulator = null;
+        }
+      }
+
+      if (needMic) {
+        const det = getDetector();
+        applyStoredNoiseProfile(det);
+        if (!session?.listening) {
+          await det.start((result) => onPitch(result));
+        }
+      } else if (detector) {
+        detector.stop();
+        applyStoredNoiseProfile(detector);
+      }
+
+      if (state.config.simulatorEnabled && state.config.simulatorInput === 'digital') {
+        getSimulator().startDigitalFeed((result) => onPitch(result));
+      } else if (simulator) {
+        simulator.stopDigitalFeed();
       }
     } catch (err) {
       console.error(err);
       showMicError(micErrorMessage(err));
+      stopSimulatorOnly();
       setTrainMode(false);
       return;
     }
@@ -308,7 +435,7 @@
 
     session = {
       active: true,
-      listening: true,
+      listening: needMic,
       pool,
       target: null,
       lastTargetKey: null,
@@ -324,13 +451,22 @@
     nextTarget();
   }
 
+  function stopSimulatorOnly() {
+    if (simulator) {
+      simulator.stop();
+      simulator = null;
+    }
+  }
+
   function stopSession() {
     if (detector) {
       detector.stop();
       applyStoredNoiseProfile(detector);
     }
+    stopSimulatorOnly();
     session = null;
     setTrainMode(false);
+    els.simulatorCard.hidden = true;
     els.promptCard.classList.remove('correct', 'listening');
     els.noteName.textContent = '—';
     els.locationHint.textContent = 'Location';
@@ -370,7 +506,9 @@
     els.locationHint.textContent = loc.stringLine;
     els.locationRange.textContent = `Find it in ${loc.rangeLine}`;
     els.listenStatus.textContent = 'Listening';
-    els.heardPitch.textContent = 'Play the note…';
+    els.heardPitch.textContent = state.config.simulatorEnabled
+      ? 'Slide to the note…'
+      : 'Play the note…';
     els.promptCard.classList.remove('correct');
     els.promptCard.classList.add('listening');
   }
@@ -452,6 +590,7 @@
     getState: () => state,
     getSession: () => session,
     getDetector: () => detector,
+    getSimulator: () => simulator,
     DEFAULT_CONFIG,
     STRING_LABELS,
     CENTS_TOLERANCE,
