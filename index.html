@@ -9,7 +9,7 @@
   <title>Fretboard Trainer</title>
   <link rel="manifest" href="manifest.json">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
-  <link rel="stylesheet" href="css/styles.css?v=6">
+  <link rel="stylesheet" href="css/styles.css?v=7">
 </head>
 <body>
   <header class="app-header">
@@ -85,15 +85,15 @@
         </p>
         <div class="gain-readout">
           <span>Current gain</span>
-          <strong id="mic-gain-value">6×</strong>
+          <strong id="mic-gain-value">12×</strong>
         </div>
         <label class="sim-slider-field">
           <span class="visually-hidden">Microphone gain</span>
-          <input type="range" id="mic-gain-slider" min="1" max="24" step="0.5" value="6">
+          <input type="range" id="mic-gain-slider" min="1" max="64" step="0.5" value="12">
         </label>
         <div class="sim-slider-ends">
           <span>1×</span>
-          <span>24×</span>
+          <span>64×</span>
         </div>
         <p class="noise-status" id="noise-status">Not calibrated yet.</p>
         <div class="train-actions">
@@ -177,9 +177,9 @@
           <p class="mic-meter-label" id="mic-meter-label">Mic level</p>
           <div class="live-gain" id="live-gain-row">
             <label class="live-gain-label" for="live-mic-gain-slider">
-              Mic gain <strong id="live-mic-gain-value">6×</strong>
+              Mic gain <strong id="live-mic-gain-value">12×</strong>
             </label>
-            <input type="range" id="live-mic-gain-slider" min="1" max="24" step="0.5" value="6">
+            <input type="range" id="live-mic-gain-slider" min="1" max="64" step="0.5" value="12">
           </div>
           <div class="session-stats">
             <div class="stat">
@@ -226,11 +226,11 @@
     </div>
   </div>
 
-  <script src="js/fretboard.js?v=6"></script>
-  <script src="js/pitch.js?v=6"></script>
-  <script src="js/simulator.js?v=6"></script>
-  <script src="js/storage.js?v=6"></script>
-  <script src="js/app.js?v=6"></script>
+  <script src="js/fretboard.js?v=7"></script>
+  <script src="js/pitch.js?v=7"></script>
+  <script src="js/simulator.js?v=7"></script>
+  <script src="js/storage.js?v=7"></script>
+  <script src="js/app.js?v=7"></script>
   <script>
     if (!window.isSecureContext) {
       var hint = document.getElementById('secure-context-hint');

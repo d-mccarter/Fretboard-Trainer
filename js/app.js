@@ -12,7 +12,8 @@
   const PitchDetector = window.PitchDetector;
   const ToneSimulator = window.ToneSimulator;
 
-  const CENTS_TOLERANCE = 10;
+  const CENTS_TOLERANCE = 25;
+  const MAX_MIC_GAIN = 64;
   const MATCH_FRAMES = 2;
   const NEXT_DELAY_MS = 550;
   const CALIBRATE_NOISE_MS = 2000;
@@ -232,7 +233,7 @@
   }
 
   function setMicGain(gain) {
-    const next = Math.max(1, Math.min(24, Number(gain) || 1));
+    const next = Math.max(1, Math.min(MAX_MIC_GAIN, Number(gain) || 1));
     state.config.micGain = next;
     persist();
     renderMicGain();

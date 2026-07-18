@@ -10,14 +10,15 @@ const DEFAULT_OPTIONS = {
   // Guitar notes are often less "pure" than sine tones — keep this modest.
   clarityThreshold: 0.78,
   // Threshold is measured after mic gain — keep low for unamplified electrics.
-  rmsThreshold: 0.001,
+  rmsThreshold: 0.0007,
   highpassHz: 65,
-  noiseMargin: 1.55,
+  noiseMargin: 1.45,
   spectralOverSubtract: 1.25,
-  residualRatio: 0.12,
+  residualRatio: 0.1,
   yinThreshold: 0.15,
   // Extra digital gain for quiet sources (unamplified electric, distant mic).
-  micGain: 6,
+  micGain: 12,
+  maxMicGain: 64,
 };
 
 class PitchDetector {
@@ -112,9 +113,10 @@ class PitchDetector {
     this.freqDb = new Float32Array(analyser.frequencyBinCount);
   }
 
-  /** Live mic preamp gain (1–24×). Applies immediately if the graph is open. */
+  /** Live mic preamp gain. Applies immediately if the graph is open. */
   setMicGain(gain) {
-    const next = Math.max(1, Math.min(24, Number(gain) || 1));
+    const maxGain = this.options.maxMicGain || 64;
+    const next = Math.max(1, Math.min(maxGain, Number(gain) || 1));
     this.micGain = next;
     this.options.micGain = next;
     if (this.inputGain && this.audioContext) {
@@ -318,21 +320,23 @@ class PitchDetector {
     signalRms,
     signalPeak,
     noiseRms,
-    targetRms = 0.11,
-    maxPeak = 0.75,
+    targetRms = 0.16,
+    maxPeak = 0.9,
     minGain = 1,
-    maxGain = 24,
+    maxGain = this.options.maxMicGain || 64,
   }) {
-    const usableSignal = Math.max(signalRms, 0.0004);
+    const usableSignal = Math.max(signalRms, 0.00025);
     let gain = targetRms / usableSignal;
 
-    if (signalPeak > 0) {
+    // Prefer RMS target; only peak-limit when peaks are extreme relative to RMS
+    // (avoids under-gaining quiet electrics with a sharp attack spike).
+    if (signalPeak > 0 && signalPeak > usableSignal * 8) {
       const peakLimited = maxPeak / signalPeak;
       gain = Math.min(gain, peakLimited);
     }
 
     // Keep guitar clearly above noise after gain.
-    const minOverNoise = (noiseRms * 8) / usableSignal;
+    const minOverNoise = (noiseRms * 10) / usableSignal;
     if (Number.isFinite(minOverNoise)) {
       gain = Math.max(gain, minOverNoise);
     }

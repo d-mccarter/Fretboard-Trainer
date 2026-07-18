@@ -9,7 +9,7 @@ const DEFAULT_CONFIG = {
   /** @type {'mic' | 'digital'} */
   simulatorInput: 'digital',
   /** Digital mic preamp for quiet sources (unamplified electric). */
-  micGain: 6,
+  micGain: 12,
 };
 
 function loadState() {
@@ -80,7 +80,7 @@ function normalizeConfig(config = {}) {
 
   let micGain = Number(config.micGain);
   if (!Number.isFinite(micGain)) micGain = DEFAULT_CONFIG.micGain;
-  micGain = Math.max(1, Math.min(24, Math.round(micGain * 10) / 10));
+  micGain = Math.max(1, Math.min(64, Math.round(micGain * 10) / 10));
 
   return {
     strings: strings.length ? strings : [...DEFAULT_CONFIG.strings],
