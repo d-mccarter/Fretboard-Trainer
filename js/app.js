@@ -19,6 +19,7 @@
   const CALIBRATE_NOISE_MS = 2000;
   const CALIBRATE_PLAY_MS = 7000;
   const CALIBRATE_BEAT_MS = 500;
+  const CALIBRATE_COUNT_IN_BEATS = 4;
   const CALIBRATE_REF_GAIN = 1;
 
   const state = loadState();
@@ -385,11 +386,21 @@
 
       els.calibrateLight.classList.remove('quiet');
       els.calibratePhaseText.textContent =
-        'Phase 2 · When the light blinks, pluck any note. Keep plucking once per blink.';
+        'Phase 2 · 4-beat count-in, then pluck on every blink.';
       els.calibrateBeatLabel.textContent = 'Get ready…';
 
-      // Brief pause so the user can pick up the guitar
-      await waitMs(900, () => cancelled);
+      await runCalibrateCountIn({
+        beats: CALIBRATE_COUNT_IN_BEATS,
+        beatMs: CALIBRATE_BEAT_MS,
+        isCancelled: () => cancelled,
+        onProgress: (progress) => {
+          // Count-in occupies a small slice between noise (35%) and play (55%)
+          setCalibrateProgress(0.35 + progress * 0.08);
+        },
+      });
+
+      els.calibratePhaseText.textContent =
+        'Phase 2 · Pluck any note when the light blinks.';
 
       const play = await det.samplePlayPeaks({
         durationMs: CALIBRATE_PLAY_MS,
@@ -401,7 +412,7 @@
           els.calibrateBeatLabel.textContent = `Pluck now · beat ${beat + 1} of ${totalBeats}`;
         },
         onProgress: (progress) => {
-          setCalibrateProgress(0.35 + progress * 0.55);
+          setCalibrateProgress(0.43 + progress * 0.52);
         },
       });
 
@@ -479,6 +490,21 @@
       };
       requestAnimationFrame(tick);
     });
+  }
+
+  /** 4-beat (or N-beat) blinking count-in before pluck sampling. */
+  async function runCalibrateCountIn({ beats, beatMs, isCancelled, onProgress }) {
+    for (let i = 1; i <= beats; i += 1) {
+      if (isCancelled()) throw new Error('CALIBRATION_CANCELLED');
+      flashCalibrateLight();
+      els.calibrateBeatLabel.textContent = `Count in · ${i}`;
+      if (typeof onProgress === 'function') {
+        onProgress(i / beats);
+      }
+      await waitMs(beatMs, isCancelled);
+    }
+    if (isCancelled()) throw new Error('CALIBRATION_CANCELLED');
+    els.calibrateBeatLabel.textContent = 'Go!';
   }
 
   function clearNoiseProfile() {

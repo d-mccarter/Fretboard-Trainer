@@ -10,7 +10,7 @@ Works on iPhone: open in Safari, tap **Share → Add to Home Screen** for a full
 - **Train** — A note name is shown with a location hint (which string, and the configured fret range)
 - **Microphone pitch detection** — Autocorrelation-based detector listens for the correct pitch
 - **Guitar simulator** — Optional pitch slider that plays a phone tone for testing without a guitar; choose **Digital** (reads the tone directly) or **Microphone** (listens via the speaker)
-- **Mic calibration** — Measures room noise, then blinks twice per second while you pluck so the app can auto-set microphone gain
+- **Mic calibration** — Measures room noise, 4-beat count-in, then blinks twice per second while you pluck so the app can auto-set microphone gain
 - **Local storage** — Settings and streak stats stay on your device
 
 ## Quick start
