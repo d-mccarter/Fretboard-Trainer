@@ -13,12 +13,12 @@
   const ToneSimulator = window.ToneSimulator;
 
   const CENTS_TOLERANCE = 25;
-  const MAX_MIC_GAIN = 64;
-  const MATCH_FRAMES = 2;
+  const MAX_MIC_GAIN = 100;
+  const MATCH_MS = 50;
   const NEXT_DELAY_MS = 550;
   const CALIBRATE_NOISE_MS = 2000;
   const CALIBRATE_PLAY_MS = 7000;
-  const CALIBRATE_BEAT_MS = 1000;
+  const CALIBRATE_BEAT_MS = 500;
   const CALIBRATE_REF_GAIN = 1;
 
   const state = loadState();
@@ -651,7 +651,7 @@
       lastTargetKey: null,
       streak: 0,
       correct: 0,
-      matchFrames: 0,
+      matchStartedAt: null,
       advancing: false,
     };
 
@@ -688,7 +688,7 @@
 
   function skipTarget() {
     if (!session?.active || session.advancing) return;
-    session.matchFrames = 0;
+    session.matchStartedAt = null;
     session.streak = 0;
     els.sessionStreak.textContent = '0';
     nextTarget();
@@ -708,7 +708,7 @@
 
     session.target = pick;
     session.lastTargetKey = `${pick.string}-${pick.fret}`;
-    session.matchFrames = 0;
+    session.matchStartedAt = null;
     session.advancing = false;
 
     const loc = describeLocation(pick, state.config);
@@ -731,7 +731,7 @@
     }
 
     if (!result.frequency) {
-      session.matchFrames = 0;
+      session.matchStartedAt = null;
       if (result.reason === 'noise') {
         els.listenStatus.textContent = 'Noise gated';
         els.heardPitch.textContent = 'Background is masking the note — recalibrate or play louder';
@@ -755,14 +755,14 @@
     els.heardPitch.textContent = `${heardName} · ${formatCents(cents)}`;
 
     if (Math.abs(cents) <= CENTS_TOLERANCE) {
-      session.matchFrames += 1;
-      els.listenStatus.textContent =
-        session.matchFrames >= MATCH_FRAMES ? 'Correct!' : 'Locked…';
-      if (session.matchFrames >= MATCH_FRAMES) {
+      if (!session.matchStartedAt) {
+        session.matchStartedAt = performance.now();
+        els.listenStatus.textContent = 'Locked…';
+      } else if (performance.now() - session.matchStartedAt >= MATCH_MS) {
         registerCorrect();
       }
     } else {
-      session.matchFrames = 0;
+      session.matchStartedAt = null;
       els.listenStatus.textContent = 'Listening';
     }
   }

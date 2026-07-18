@@ -18,7 +18,7 @@ const DEFAULT_OPTIONS = {
   yinThreshold: 0.15,
   // Extra digital gain for quiet sources (unamplified electric, distant mic).
   micGain: 12,
-  maxMicGain: 64,
+  maxMicGain: 100,
 };
 
 class PitchDetector {
@@ -115,7 +115,7 @@ class PitchDetector {
 
   /** Live mic preamp gain. Applies immediately if the graph is open. */
   setMicGain(gain) {
-    const maxGain = this.options.maxMicGain || 64;
+    const maxGain = this.options.maxMicGain || 100;
     const next = Math.max(1, Math.min(maxGain, Number(gain) || 1));
     this.micGain = next;
     this.options.micGain = next;
@@ -323,7 +323,7 @@ class PitchDetector {
     targetRms = 0.16,
     maxPeak = 0.9,
     minGain = 1,
-    maxGain = this.options.maxMicGain || 64,
+    maxGain = this.options.maxMicGain || 100,
   }) {
     const usableSignal = Math.max(signalRms, 0.00025);
     let gain = targetRms / usableSignal;
