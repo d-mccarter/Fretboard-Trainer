@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0f0f12">
+  <title>Fretboard Trainer</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/styles.css?v=1">
+</head>
+<body>
+  <header class="app-header">
+    <h1 id="page-title">Configure</h1>
+    <span class="build-label" id="build-label">Build …</span>
+  </header>
+
+  <main id="app">
+    <!-- Configure -->
+    <section id="view-configure" class="view active">
+      <div class="card">
+        <h3>Strings</h3>
+        <p class="field-hint">Choose which strings to include. Numbers follow guitar convention (1 = high E).</p>
+        <div class="string-grid" role="group" aria-label="Strings">
+          <button type="button" class="chip" data-string="6" aria-pressed="true">6 · low E</button>
+          <button type="button" class="chip" data-string="5" aria-pressed="true">5 · A</button>
+          <button type="button" class="chip" data-string="4" aria-pressed="true">4 · D</button>
+          <button type="button" class="chip" data-string="3" aria-pressed="true">3 · G</button>
+          <button type="button" class="chip" data-string="2" aria-pressed="true">2 · B</button>
+          <button type="button" class="chip" data-string="1" aria-pressed="true">1 · high E</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Fret range</h3>
+        <div class="field-row">
+          <label class="field">
+            <span>From fret</span>
+            <input type="number" id="fret-min" min="0" max="24" value="0" inputmode="numeric">
+          </label>
+          <label class="field">
+            <span>To fret</span>
+            <input type="number" id="fret-max" min="0" max="24" value="12" inputmode="numeric">
+          </label>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Notes</h3>
+        <div class="sync-auto-row">
+          <span>Natural notes only</span>
+          <button type="button" id="naturals-only" class="sync-switch on" aria-pressed="true">On</button>
+        </div>
+        <p class="field-hint">When on, sharps and flats are excluded (C D E F G A B only).</p>
+      </div>
+
+      <div class="card summary-card">
+        <div class="summary-row">
+          <span class="summary-label">Notes in pool</span>
+          <strong id="pool-count">0</strong>
+        </div>
+        <div class="stats-row">
+          <div class="stat">
+            <span class="stat-value" id="stat-notes-correct">0</span>
+            <span class="stat-label">All-time correct</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="stat-best-streak">0</span>
+            <span class="stat-label">Best streak</span>
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary btn-large" id="start-train-btn">Start training</button>
+      </div>
+    </section>
+
+    <!-- Train -->
+    <section id="view-train" class="view">
+      <div id="train-idle">
+        <div class="card">
+          <h3>Ready</h3>
+          <p class="field-hint">
+            A note name will appear with a location hint (string and fret range).
+            Pluck that note on your guitar — the app listens through the microphone.
+          </p>
+          <p class="field-hint secure-hint" id="secure-context-hint" hidden>
+            Microphone access needs HTTPS. Open this page over a secure connection.
+          </p>
+          <button type="button" class="btn btn-primary btn-large" id="train-start-btn">Start listening</button>
+        </div>
+      </div>
+
+      <div id="train-active" hidden>
+        <div class="card prompt-card" id="prompt-card">
+          <p class="prompt-label">Play this note</p>
+          <div class="note-name" id="note-name">—</div>
+          <p class="location-hint" id="location-hint">Location</p>
+          <p class="location-range" id="location-range"></p>
+        </div>
+
+        <div class="card listen-card">
+          <div class="listen-row">
+            <span class="listen-status" id="listen-status">Listening</span>
+            <span class="heard-pitch" id="heard-pitch">Play the note…</span>
+          </div>
+          <div class="session-stats">
+            <div class="stat">
+              <span class="stat-value" id="session-streak">0</span>
+              <span class="stat-label">Streak</span>
+            </div>
+            <div class="stat">
+              <span class="stat-value" id="session-correct">0</span>
+              <span class="stat-label">Correct</span>
+            </div>
+          </div>
+          <div class="train-actions">
+            <button type="button" class="btn btn-secondary" id="train-skip-btn">Skip</button>
+            <button type="button" class="btn btn-danger" id="train-stop-btn">Stop</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="mic-error" id="mic-error" hidden></p>
+    </section>
+  </main>
+
+  <nav class="bottom-nav">
+    <button type="button" class="nav-btn active" data-view="configure">
+      <span class="nav-icon">⚙</span>
+      <span>Configure</span>
+    </button>
+    <button type="button" class="nav-btn" data-view="train">
+      <span class="nav-icon">♪</span>
+      <span>Train</span>
+    </button>
+  </nav>
+
+  <script src="js/fretboard.js?v=1"></script>
+  <script src="js/pitch.js?v=1"></script>
+  <script src="js/storage.js?v=1"></script>
+  <script src="js/app.js?v=1"></script>
+  <script>
+    if (!window.isSecureContext) {
+      var hint = document.getElementById('secure-context-hint');
+      if (hint) hint.hidden = false;
+    }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').then((reg) => reg.update()).catch(() => {});
+    }
+  </script>
+</body>
+</html>
